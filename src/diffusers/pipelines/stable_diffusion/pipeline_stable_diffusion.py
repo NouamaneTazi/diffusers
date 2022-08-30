@@ -136,7 +136,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
 
         # warmup
         latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-        t = self.scheduler.timesteps[1]
+        t = self.scheduler.timesteps[1].cuda()
         i=1
         if isinstance(self.scheduler, LMSDiscreteScheduler):
             sigma = self.scheduler.sigmas[i]
@@ -166,11 +166,15 @@ class StableDiffusionPipeline(DiffusionPipeline):
                 sigma = self.scheduler.sigmas[i]
                 latent_model_input.copy_(latent_model_input / ((sigma**2 + 1) ** 0.5))
 
-            t.copy_(timestep)
+            t.copy_(timestep.cuda())
 
             # predict the noise residual
             g.replay() # replay the graph and updates outputs
+            print()
             print(noise_pred.mean())
+            print(latents.max())
+            print(latents.std())
+            print(latents.mean())
 
             # perform guidance
             if do_classifier_free_guidance:
