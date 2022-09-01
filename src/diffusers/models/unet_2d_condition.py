@@ -181,6 +181,4 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
         sample = self.conv_act(sample)
         sample = self.conv_out(sample)
 
-        output = {"sample": sample}
-
-        return output
+        return sample
