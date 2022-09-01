@@ -11,6 +11,11 @@ from ...pipeline_utils import DiffusionPipeline
 from ...schedulers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler
 from .safety_checker import StableDiffusionSafetyChecker
 
+from .cg_test import graph
+
+torch.backends.cudnn.benchmark = False
+torch.manual_seed(123154)
+torch.cuda.manual_seed(123154)
 
 class StableDiffusionPipeline(DiffusionPipeline):
     def __init__(
@@ -25,6 +30,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
     ):
         super().__init__()
         scheduler = scheduler.set_format("pt")
+        self.captured_cg = None
         self.register_modules(
             vae=vae,
             text_encoder=text_encoder,
@@ -118,6 +124,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
             extra_set_kwargs["offset"] = 1
 
         self.scheduler.set_timesteps(num_inference_steps, **extra_set_kwargs)
+        self.scheduler.timesteps = self.scheduler.timesteps.to(self.device)
 
         # if we use LMSDiscreteScheduler, let's make sure latents are mulitplied by sigmas
         if isinstance(self.scheduler, LMSDiscreteScheduler):
@@ -132,6 +139,20 @@ class StableDiffusionPipeline(DiffusionPipeline):
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
+        if self.captured_cg is None:
+            print("Graphing\n")
+            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            sample_args = (latent_model_input.clone(), self.scheduler.timesteps[0].clone(), text_embeddings.clone())
+            self.unet = graph(self.unet,
+                                sample_args,
+                                sample_args,
+                                graph_stream=None,
+                                warmup_only=False)
+            self.captured_cg  = True
+            print("Graphing Done!\n")
+        else:
+            print("Graphing already done\n")
+
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             # expand the latents if we are doing classifier free guidance
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -141,7 +162,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
                 latent_model_input = latent_model_input / ((sigma**2 + 1) ** 0.5)
 
             # predict the noise residual
-            noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)["sample"]
+            noise_pred = self.unet(latent_model_input, t, text_embeddings)
 
             # perform guidance
             if do_classifier_free_guidance:
