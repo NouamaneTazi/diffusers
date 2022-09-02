@@ -31,6 +31,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
         super().__init__()
         scheduler = scheduler.set_format("pt")
         self.captured_cg = None
+        self.main_loop = None
         self.register_modules(
             vae=vae,
             text_encoder=text_encoder,
@@ -139,22 +140,8 @@ class StableDiffusionPipeline(DiffusionPipeline):
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
-        if self.captured_cg is None:
-            print("Graphing\n")
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            sample_args = (latent_model_input.clone(), self.scheduler.timesteps[0].clone(), text_embeddings.clone())
-            self.unet = graph(self.unet,
-                                sample_args,
-                                sample_args,
-                                graph_stream=None,
-                                warmup_only=False)
-            self.captured_cg  = True
-            print("Graphing Done!\n")
-        else:
-            print("Graphing already done\n")
-
-        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
-            # expand the latents if we are doing classifier free guidance
+        def main_loop(i, t, latents):
+                    # expand the latents if we are doing classifier free guidance
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
             if isinstance(self.scheduler, LMSDiscreteScheduler):
                 sigma = self.scheduler.sigmas[i]
@@ -174,6 +161,24 @@ class StableDiffusionPipeline(DiffusionPipeline):
                 latents = self.scheduler.step(noise_pred, i, latents, **extra_step_kwargs)["prev_sample"]
             else:
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)["prev_sample"]
+            return latents
+
+
+        if self.captured_cg is None:
+            print("Graphing\n")
+            sample_args = (torch.tensor(1), self.scheduler.timesteps[1], latents)
+            self.main_loop = graph(main_loop,
+                                sample_args,
+                                sample_args,
+                                graph_stream=None,
+                                warmup_only=False)
+            self.captured_cg  = True
+            print("Graphing Done!\n")
+        else:
+            print("Graphing already done\n")
+
+        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
+            latents = self.main_loop(torch.tensor(i), t, latents)[0]
 
         # scale and decode the image latents with vae
         latents = 1 / 0.18215 * latents
@@ -186,7 +191,8 @@ class StableDiffusionPipeline(DiffusionPipeline):
         safety_cheker_input = self.feature_extractor(self.numpy_to_pil(image), return_tensors="pt").to(self.device)
         image, has_nsfw_concept = self.safety_checker(images=image, clip_input=safety_cheker_input.pixel_values)
 
-        if output_type == "pil":
-            image = self.numpy_to_pil(image)
+        # if output_type == "pil":
+        #     image = self.numpy_to_pil(image)
 
         return {"sample": image, "nsfw_content_detected": has_nsfw_concept}
+

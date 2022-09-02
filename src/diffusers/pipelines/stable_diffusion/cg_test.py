@@ -62,7 +62,7 @@ def graph(func_or_module,
             assert len(sample_args_eval) == len(sample_args)
 
             with torch.no_grad():
-                func_or_module.eval()
+                # func_or_module.eval()
 
                 # warmup iters before capture
                 for _ in range(warmup_iters):
