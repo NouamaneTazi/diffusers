@@ -140,33 +140,34 @@ class StableDiffusionPipeline(DiffusionPipeline):
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
-        def main_loop(i, t, latents):
-                    # expand the latents if we are doing classifier free guidance
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-            if isinstance(self.scheduler, LMSDiscreteScheduler):
-                sigma = self.scheduler.sigmas[i]
-                # the model input needs to be scaled to match the continuous ODE formulation in K-LMS
-                latent_model_input = latent_model_input / ((sigma**2 + 1) ** 0.5)
+        def main_loop(latents):
+            for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
+                # expand the latents if we are doing classifier free guidance
+                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                if isinstance(self.scheduler, LMSDiscreteScheduler):
+                    sigma = self.scheduler.sigmas[i]
+                    # the model input needs to be scaled to match the continuous ODE formulation in K-LMS
+                    latent_model_input = latent_model_input / ((sigma**2 + 1) ** 0.5)
 
-            # predict the noise residual
-            noise_pred = self.unet(latent_model_input, t, text_embeddings)
+                # predict the noise residual
+                noise_pred = self.unet(latent_model_input, t, text_embeddings)
 
-            # perform guidance
-            if do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                # perform guidance
+                if do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-            # compute the previous noisy sample x_t -> x_t-1
-            if isinstance(self.scheduler, LMSDiscreteScheduler):
-                latents = self.scheduler.step(noise_pred, i, latents, **extra_step_kwargs)["prev_sample"]
-            else:
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)["prev_sample"]
+                # compute the previous noisy sample x_t -> x_t-1
+                if isinstance(self.scheduler, LMSDiscreteScheduler):
+                    latents = self.scheduler.step(noise_pred, i, latents, **extra_step_kwargs)["prev_sample"]
+                else:
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)["prev_sample"]
             return latents
 
 
         if self.captured_cg is None:
             print("Graphing\n")
-            sample_args = (torch.tensor(1), self.scheduler.timesteps[1], latents)
+            sample_args = (latents.clone(),)
             self.main_loop = graph(main_loop,
                                 sample_args,
                                 sample_args,
@@ -177,8 +178,8 @@ class StableDiffusionPipeline(DiffusionPipeline):
         else:
             print("Graphing already done\n")
 
-        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
-            latents = self.main_loop(torch.tensor(i), t, latents)[0]
+        
+        latents = self.main_loop(latents)[0]
 
         # scale and decode the image latents with vae
         latents = 1 / 0.18215 * latents
@@ -189,10 +190,10 @@ class StableDiffusionPipeline(DiffusionPipeline):
 
         # run safety checker
         safety_cheker_input = self.feature_extractor(self.numpy_to_pil(image), return_tensors="pt").to(self.device)
-        image, has_nsfw_concept = self.safety_checker(images=image, clip_input=safety_cheker_input.pixel_values)
+        # image, has_nsfw_concept = self.safety_checker(images=image, clip_input=safety_cheker_input.pixel_values)
 
-        # if output_type == "pil":
-        #     image = self.numpy_to_pil(image)
+        if output_type == "pil":
+            image = self.numpy_to_pil(image)
 
-        return {"sample": image, "nsfw_content_detected": has_nsfw_concept}
+        return {"sample": image, "nsfw_content_detected": False}
 
