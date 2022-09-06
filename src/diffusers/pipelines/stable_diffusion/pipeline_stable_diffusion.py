@@ -11,7 +11,8 @@ from ...pipeline_utils import DiffusionPipeline
 from ...schedulers import DDIMScheduler, LMSDiscreteScheduler, PNDMScheduler
 from .safety_checker import StableDiffusionSafetyChecker
 
-from .cg_test import graph
+# from .cg_test import graph
+from .cg_test import graph_simple as graph
 
 torch.backends.cudnn.benchmark = False
 torch.manual_seed(123154)
