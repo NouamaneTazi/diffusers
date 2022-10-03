@@ -124,6 +124,7 @@ class StableDiffusionPipeline(DiffusionPipeline):
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
+        return_async: bool = False,
         **kwargs,
     ):
         r"""
@@ -301,6 +302,10 @@ class StableDiffusionPipeline(DiffusionPipeline):
         image = self.vae.decode(latents).sample
 
         image = (image / 2 + 0.5).clamp(0, 1)
+
+        if return_async:
+            return image
+            
         image = image.cpu().permute(0, 2, 3, 1).numpy()
 
         safety_checker_input = self.feature_extractor(self.numpy_to_pil(image), return_tensors="pt").to(self.device)
