@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-import warnings
 from typing import Optional, Tuple, Union
 
 import torch
@@ -36,7 +35,6 @@ class DDPMPipeline(DiffusionPipeline):
 
     def __init__(self, unet, scheduler):
         super().__init__()
-        scheduler = scheduler.set_format("pt")
         self.register_modules(unet=unet, scheduler=scheduler)
 
     @torch.no_grad()
@@ -66,17 +64,6 @@ class DDPMPipeline(DiffusionPipeline):
             `return_dict` is True, otherwise a `tuple. When returning a tuple, the first element is a list with the
             generated images.
         """
-        if "torch_device" in kwargs:
-            device = kwargs.pop("torch_device")
-            warnings.warn(
-                "`torch_device` is deprecated as an input argument to `__call__` and will be removed in v0.3.0."
-                " Consider using `pipe.to(torch_device)` instead."
-            )
-
-            # Set device as before (to be removed in 0.3.0)
-            if device is None:
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.to(device)
 
         # Sample gaussian noise to begin loop
         image = torch.randn(
@@ -92,7 +79,7 @@ class DDPMPipeline(DiffusionPipeline):
             # 1. predict noise model_output
             model_output = self.unet(image, t).sample
 
-            # 2. compute previous image: x_t -> t_t-1
+            # 2. compute previous image: x_t -> x_t-1
             image = self.scheduler.step(model_output, t, image, generator=generator).prev_sample
 
         image = (image / 2 + 0.5).clamp(0, 1)
