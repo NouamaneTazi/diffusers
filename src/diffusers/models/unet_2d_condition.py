@@ -188,6 +188,26 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
             if hasattr(block, "attentions") and block.attentions is not None:
                 block.set_attention_slice(slice_size)
 
+    def enable_flash_attention(self):
+        try:
+            import xformers.ops
+        except ImportError:
+            raise ImportError(
+                "To use the flash attention feature, please install xformers from source:\n" \
+                "pip install git+https://github.com/facebookresearch/xformers@51dd119#egg=xformers --verbose"
+            )
+        try:
+            torch.ops.xformers.efficient_attention_forward_generic
+        except Exception:
+            raise ImportError(
+                "It seems that xformers wasn't installed correctly. To use the flash attention feature, please install xformers from source:\n" \
+                "python setup.py build develop"
+            )
+
+
+
+
+
     def forward(
         self,
         sample: torch.FloatTensor,
